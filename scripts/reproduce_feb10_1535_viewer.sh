@@ -47,36 +47,40 @@ echo "[1/5] tracking (adaptive SVD, temporal-sigma 0) on ${NUM_ACQS} acquisition
   --smoothing-sigma 1.0 --tracking kalman --max-gap 3 --min-track-length 5 --max-cost 10 \
   --export-dir "${OUTDIR}/tracks" --export-stem tracks
 
-echo "[2/5] 3D SVD volume viewer"
+echo "[2/5] 3D SVD volume viewer (secondary, served at /volume/)"
 "${PYTHON}" -m ultratrace_ulm.cli volume \
   --beamformed "${BEAMFORMED}" --tracks "${SMOOTHED}" \
   --output-dir "${OUTDIR}/viewer/volume" \
   --num-acqs "${VIEW_ACQS}" --voxel-percentile 99.9 --max-points-per-frame 8000 \
   --dynamic-range-db 15 --temporal-sigma 0
 
-echo "[3/5] 3D track-flow viewer"
-# --svd-cutoff 0.1 colors points by SVD-filtered B-mode intensity, which weights
-# bubble signal over tissue brightness (cleaner than raw --svd-cutoff 0).
-"${PYTHON}" -m ultratrace_ulm.cli track-viewer \
-  --tracks "${SMOOTHED}" --output-dir "${OUTDIR}/viewer/tracks3d" \
-  --min-length 5 --sigma 10 --beamformed "${BEAMFORMED}" --svd-cutoff 0.1
-
-echo "[4/5] SVD b-mode movie viewer"
+echo "[3/5] SVD b-mode movie viewer (secondary, served at /movie/)"
 "${PYTHON}" -m ultratrace_ulm.cli movie \
   --beamformed "${BEAMFORMED}" --tracks "${SMOOTHED}" \
   --output-dir "${OUTDIR}/viewer/movie" \
   --num-acqs "${VIEW_ACQS}" --projection xz-slab-mip --elev-slabs 6 \
   --dynamic-range-db 15 --temporal-sigma 0
 
-echo "[5/5] launcher landing page"
+echo "[4/5] 3D track-flow viewer == DEFAULT viewer at the bundle root"
+# The track-flow viewer is written to the bundle ROOT so opening the served
+# directory shows the tracks immediately (no menu in the way).
+# --svd-cutoff 0.1 colors points by SVD-filtered B-mode intensity, which weights
+# bubble signal over tissue brightness (cleaner than raw --svd-cutoff 0).
+"${PYTHON}" -m ultratrace_ulm.cli track-viewer \
+  --tracks "${SMOOTHED}" --output-dir "${OUTDIR}/viewer" \
+  --min-length 5 --sigma 10 --beamformed "${BEAMFORMED}" --svd-cutoff 0.1
+
+echo "[5/5] optional menu of all views at /menu/"
 "${PYTHON}" -m ultratrace_ulm.cli launcher \
-  --output-dir "${OUTDIR}/viewer" \
+  --output-dir "${OUTDIR}/viewer/menu" \
   --title "Ultratrace ULM - 15:35 (2026-02-10)" \
   --subtitle "Source: $(basename "${BEAMFORMED}") - ${NUM_ACQS} acqs - adaptive SVD, temporal-sigma 0" \
-  --viewer "volume/|3D SVD Volume Viewer|Rotatable super-resolution volume with microbubble track overlay.|🧊" \
-  --viewer "tracks3d/|3D Track-Flow Viewer|Animated point-flow of the microbubble tracks.|✨" \
-  --viewer "movie/|SVD B-mode Movie Viewer|Six-row elevation-slab SVD b-mode movie with track overlay.|🎞️"
+  --viewer "../|3D Track-Flow Viewer (default)|Animated point-flow of the microbubble tracks.|TRK" \
+  --viewer "../volume/|3D SVD Volume Viewer|Rotatable super-resolution volume with track overlay.|VOL" \
+  --viewer "../movie/|SVD B-mode Movie Viewer|Six-row elevation-slab SVD b-mode movie with track overlay.|MOV"
 
 echo
-echo "Done. Serve the bundle with:"
+echo "Done. The DEFAULT view is the track-flow viewer."
+echo "Serve the bundle with:"
 echo "  cd ${OUTDIR}/viewer && ${PYTHON} -m http.server 8137 --bind 0.0.0.0"
+echo "Then: /  = tracks, /volume/ , /movie/ , /menu/ = all views."
