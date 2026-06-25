@@ -30,4 +30,4 @@ ultratrace-ulm = "ultratrace_ulm.cli:main"
 include = ["ultratrace_ulm*"]
 
 [tool.setuptools.package-data]
-ultratrace_ulm = ["web/svd_viewer/*", "web/staged_viewer/*", "web/volume_viewer/*", "web/track_viewer/*", "web/launcher/*"]
+ultratrace_ulm = ["web/track_viewer/*", "web/volume_viewer/*", "web/launcher/*"]

@@ -9,8 +9,8 @@ from pathlib import Path
 import numpy as np
 
 from .h5_io import acq_keys, axis_bounds, grid_arrays, load_compound, open_h5, select_acquisitions
-from .movie_export import _filter_svd
 from .runtime import load_pickle
+from .svd import filtered_magnitude
 
 
 @dataclass(frozen=True)
@@ -258,7 +258,13 @@ def export_svd_volume(opts: VolumeExportOptions) -> Path:
             if frames_per_acq is None:
                 frames_per_acq = int(compound.shape[0])
             backgrounds.append(np.abs(compound).astype(np.float32, copy=False))
-            filtered = _filter_svd(compound, opts)
+            filtered = filtered_magnitude(
+                compound,
+                low_cutoff=opts.svd_low_cutoff,
+                high_cutoff=opts.svd_high_cutoff,
+                method=opts.svd_method,
+                temporal_sigma=opts.temporal_sigma,
+            )
             volumes.append(filtered)
 
     volume = np.concatenate(volumes, axis=0)
