@@ -2,7 +2,7 @@
 
 Pure standard library (``urllib``) so the package keeps its minimal dependency
 footprint -- no ``curl``/``requests`` required. Supports HTTP range resume so an
-interrupted ~98 GB download can be continued in place.
+interrupted ~96 GB download can be continued in place.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 
 #: Sanitized neutral ultratrace (demodulated IQ + transmit delays + a
-#: beamforming-only config) hosted on Cloudflare R2: ~98 GB, 223 acquisitions.
+#: beamforming-only config) hosted on Cloudflare R2: ~96 GB, 216 acquisitions (Feb 2026 golden reference, 8-row elevation aperture).
 SAMPLE_URL = (
     "https://pub-9c1be6312b2441eb8732660783d9ee81.r2.dev/"
     "sanitized_neutral_ultratrace.h5"

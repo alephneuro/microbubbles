@@ -53,7 +53,7 @@ Already have a beamformed file? Skip download and beamforming:
 ultratrace-ulm run --beamformed beamformed.h5 --frame-rate 222
 ```
 
-> `run` downloads ~98 GB and beamforms on a CUDA GPU. To avoid both, pass
+> `run` downloads ~96 GB and beamforms on a CUDA GPU. To avoid both, pass
 > `--beamformed`. For full control over any stage, use the dedicated
 > subcommands below instead.
 
@@ -78,7 +78,7 @@ Run `ultratrace-ulm <command> --help` for the complete flag list of any command.
 
 Resumable download (pure stdlib, no `curl` needed). A sanitized neutral
 ultratrace — demodulated IQ plus transmit delays and a beamforming-only config,
-no raw frames or device metadata — hosted on Cloudflare R2 (~98 GB, 223
+no raw frames or device metadata, with the full 8-row elevation receive aperture preserved for true 3D reconstruction — hosted on Cloudflare R2 (~96 GB, 216
 acquisitions):
 
 ```bash

@@ -288,7 +288,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "download",
-        help="Download the public sample ultratrace (resumable, ~98 GB).",
+        help="Download the public sample ultratrace (resumable, ~96 GB).",
     )
     p.add_argument("-o", "--output", default=SAMPLE_FILENAME, help="Destination path.")
     p.add_argument("--url", default=SAMPLE_URL, help="Source URL.")
