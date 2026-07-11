@@ -27,7 +27,8 @@ This project uses [uv](https://docs.astral.sh/uv/). From the repo root:
 
 ```bash
 uv sync                 # core: download + tracking + viewers (creates .venv)
-uv sync --extra mach    # + GPU MACH beamforming (CUDA host only)
+uv sync --extra mach-cuda12   # + GPU MACH beamforming, CUDA 12.x host
+uv sync --extra mach-cuda13   # + GPU MACH beamforming, CUDA 13.x host
 ```
 
 `uv sync` installs the exact, locked versions (`uv.lock`). Run any command with

@@ -15,13 +15,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# GPU-only MACH beamforming. Requires a CUDA host; the cupy wheel must match the
-# local CUDA toolkit (e.g. cupy-cuda12x). The package imports fine without these.
-mach = [
-  "torch",
-  "mach-beamform",
-  "cupy",
-]
+# GPU-only MACH beamforming. Requires a CUDA host. Pick the extra matching your
+# CUDA toolkit -- these pull a prebuilt cupy wheel (no source build):
+#   uv sync --extra mach-cuda12   # CUDA 12.x hosts
+#   uv sync --extra mach-cuda13   # CUDA 13.x hosts
+# The bare "mach" alias defaults to CUDA 12. The package imports fine without any.
+mach = ["torch", "mach-beamform", "cupy-cuda12x"]
+mach-cuda12 = ["torch", "mach-beamform", "cupy-cuda12x"]
+mach-cuda13 = ["torch", "mach-beamform", "cupy-cuda13x"]
 
 [project.scripts]
 ultratrace-ulm = "ultratrace_ulm.cli:main"
