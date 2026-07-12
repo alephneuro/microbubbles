@@ -116,46 +116,54 @@ def beamform_mach(opts: BeamformOptions) -> Path:
         total = len(_neutral_acq_ids(h5))
         ids = selected_acquisitions(total, opts)
 
-        compounds: dict[int, np.ndarray] = {}
-        grids: dict[int, object] = {}
-        for acq_id in ids:
-            iq, txd, txd_elev = _load_acq(h5, acq_id)
-            print(f"[beamform] acq {acq_id}: iq {iq.shape} -> mach", flush=True)
-            compound, grid = beamform_iq(iq, txd, txd_elev, config)
-            compounds[acq_id] = compound
-            grids[acq_id] = grid
-            print(f"[beamform] acq {acq_id}: compound {compound.shape}", flush=True)
-
+        # Pass 1 (optional): derive the spatial-TGC profile from a small subset
+        # of acqs, holding only that subset in memory (not all of them).
         inv_sqrt = None
         if opts.spatial_tgc:
-            ref_grid = grids[ids[0]]
             tgc_ids = ids
             if opts.tgc_acqs and opts.tgc_acqs < len(ids):
                 sel = np.unique(
                     np.linspace(0, len(ids) - 1, opts.tgc_acqs).round().astype(int)
                 )
                 tgc_ids = [ids[i] for i in sel]
+            print(f"[tgc] beamforming {len(tgc_ids)} acq(s) for global TGC", flush=True)
+            tgc_compounds = []
+            ref_grid = None
+            for acq_id in tgc_ids:
+                iq, txd, txd_elev = _load_acq(h5, acq_id)
+                compound, grid = beamform_iq(iq, txd, txd_elev, config)
+                if ref_grid is None:
+                    ref_grid = grid
+                tgc_compounds.append(compound)
             print(f"[tgc] computing global TGC from {len(tgc_ids)} acq(s)", flush=True)
             inv_sqrt = compute_global_tgc(
-                [compounds[i] for i in tgc_ids],
+                tgc_compounds,
                 ref_grid,
                 tx_freq_hz=config.tx_freq_hz,
                 svd_cut=opts.tgc_svd_cut,
                 sigma_lambda=opts.tgc_sigma_lambda,
             )
+            del tgc_compounds
 
-    opts.output_path.parent.mkdir(parents=True, exist_ok=True)
-    with h5py.File(opts.output_path, "w") as out:
-        out.attrs["description"] = (
-            f"MACH-beamformed neutral ultratrace from {opts.input_path.name} "
-            f"(z/x coarseness {opts.z_coarseness}, elev {opts.elev_planes}, "
-            f"large_fov {opts.large_fov}, spatial_tgc {opts.spatial_tgc})"
-        )
-        for out_id, acq_id in enumerate(ids):
-            compound = compounds[acq_id]
-            if inv_sqrt is not None:
-                compound = (compound * inv_sqrt).astype(np.complex64)
-            _write_acq(out, out_id, compound, grids[acq_id])
+        # Pass 2: beamform every acq and stream it straight to disk, keeping at
+        # most one compound volume in memory (the previous code kept all of them,
+        # which OOMs for full multi-hundred-acq runs).
+        opts.output_path.parent.mkdir(parents=True, exist_ok=True)
+        with h5py.File(opts.output_path, "w") as out:
+            out.attrs["description"] = (
+                f"MACH-beamformed neutral ultratrace from {opts.input_path.name} "
+                f"(z/x coarseness {opts.z_coarseness}, elev {opts.elev_planes}, "
+                f"large_fov {opts.large_fov}, spatial_tgc {opts.spatial_tgc})"
+            )
+            for out_id, acq_id in enumerate(ids):
+                iq, txd, txd_elev = _load_acq(h5, acq_id)
+                print(f"[beamform] acq {acq_id}: iq {iq.shape} -> mach", flush=True)
+                compound, grid = beamform_iq(iq, txd, txd_elev, config)
+                if inv_sqrt is not None:
+                    compound = (compound * inv_sqrt).astype(np.complex64)
+                _write_acq(out, out_id, compound, grid)
+                print(f"[beamform] acq {acq_id}: compound {compound.shape} written", flush=True)
+                del compound, iq
     print(f"DONE: {opts.output_path}")
     return opts.output_path
 
