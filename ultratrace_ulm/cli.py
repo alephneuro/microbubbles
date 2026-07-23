@@ -122,7 +122,7 @@ def cmd_track_export(args: argparse.Namespace) -> None:
 
 
 def cmd_download(args: argparse.Namespace) -> None:
-    download_sample(args.url, args.output, force=args.force)
+    download_sample(args.url, args.output, force=args.force, downloader=args.downloader)
 
 
 def _stage(label: str) -> None:
@@ -145,7 +145,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             if raw_input.exists() and not args.force:
                 print(f"Using existing {raw_input} (--force to re-download)")
             else:
-                download_sample(args.url, raw_input, force=args.force)
+                download_sample(args.url, raw_input, force=args.force, downloader=args.downloader)
 
         # 2. Beamform raw -> beamformed.h5
         beamformed = work / "beamformed.h5"
@@ -314,6 +314,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--acq-step", type=int, default=1)
     p.add_argument("--all-acqs", action="store_true", help="Beamform every acquisition.")
     p.add_argument("--force", action="store_true", help="Re-run stages whose outputs exist.")
+    parser.add_argument("--downloader", choices=("aria2", "urllib"), default="aria2", help=( "Download backend"))
+
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("beamform", help="MACH-only beamform selected acquisitions.")

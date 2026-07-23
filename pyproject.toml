@@ -7,12 +7,7 @@ name = "ultratrace-ulm-pipeline"
 version = "0.1.0"
 description = "Standalone 3D ULM tracking and viewer tools for beamformed ultratrace data."
 requires-python = ">=3.10"
-dependencies = [
-  "h5py",
-  "numpy",
-  "scipy",
-  "tqdm",
-]
+dependencies = ["aria2p>=0.12.1", "h5py", "numpy", "scipy", "tqdm"]
 
 [project.optional-dependencies]
 # GPU-only MACH beamforming. Requires a CUDA host. Pick the extra matching your
