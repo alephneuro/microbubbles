@@ -24,9 +24,16 @@ def spectral_centroid_cutoff(
     frequency; the cutoff is the first vector whose centroid exceeds
     ``tissue_freq_hz`` (Ghosh et al., PNAS 2025). Falls back to 10% of frames.
     ``matrix`` is the (frames, voxels) temporal matrix.
+
+    The eigendecomposition runs in double precision (complex128): the
+    complex64 Gram matrix has near-degenerate eigenvalues whose eigenvectors
+    are not reproducible across runs, which would make the selected cutoff --
+    and therefore every downstream detection -- non-deterministic. complex128
+    resolves the eigenvalue gaps and yields bit-stable results.
     """
     n_frames = int(matrix.shape[0])
-    x = matrix - matrix.mean(axis=0, keepdims=True)
+    x = np.asarray(matrix, dtype=np.complex128)
+    x = x - x.mean(axis=0, keepdims=True)
     cov = x @ x.conj().T
     evals, u = np.linalg.eigh(cov)
     u = u[:, np.argsort(evals)[::-1]]
@@ -56,7 +63,8 @@ def filter_svd_3d(
     method="adaptive" picks the low cutoff per-acquisition from the temporal
     spectral centroid (requires frame_rate_hz); "fast"/"full" use a fixed
     low_cutoff (or n_components). "fast" is the covariance projection; "full"
-    is the numerically stable SVD.
+    is the numerically stable SVD. Both decompositions run in double precision
+    (complex128) so the result is deterministic across runs.
     """
     if data.ndim == 3:
         data = data[:, None, :, :]
@@ -89,14 +97,19 @@ def filter_svd_3d(
     if normalized_method == "none":
         filtered = matrix
     elif normalized_method == "fast":
-        cov = matrix @ matrix.conj().T
+        # Double precision: the complex64 Gram matrix has near-degenerate
+        # eigenvalues whose eigenvectors vary run-to-run, which shifts the
+        # filtered magnitude and makes detections non-deterministic.
+        m = np.asarray(matrix, dtype=np.complex128)
+        cov = m @ m.conj().T
         evals, u = np.linalg.eigh(cov)
         u = u[:, np.argsort(evals)[::-1]]
         stop = n_frames - high_remove if high_remove > 0 else n_frames
         uc = u[:, low:stop]
-        filtered = uc @ (uc.conj().T @ matrix)
+        filtered = uc @ (uc.conj().T @ m)
     elif normalized_method == "full":
-        u, s, vh = np.linalg.svd(matrix, full_matrices=False)
+        m = np.asarray(matrix, dtype=np.complex128)
+        u, s, vh = np.linalg.svd(m, full_matrices=False)
         s[:low] = 0
         if high_remove > 0:
             s[-high_remove:] = 0
