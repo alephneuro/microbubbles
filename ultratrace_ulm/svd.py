@@ -30,6 +30,13 @@ def spectral_centroid_cutoff(
     are not reproducible across runs, which would make the selected cutoff --
     and therefore every downstream detection -- non-deterministic. complex128
     resolves the eigenvalue gaps and yields bit-stable results.
+
+    The centroid is taken over the two-sided power spectrum of the complex
+    eigenvector, folded onto ``|f|``. An eigenvector is only defined up to a
+    global phase, so a phase-sensitive measurement (e.g. the spectrum of its
+    real part) is a property of the LAPACK representative rather than of the
+    data. Folding powers -- not amplitudes -- also keeps +f and -f Doppler
+    from cancelling.
     """
     n_frames = int(matrix.shape[0])
     x = np.asarray(matrix, dtype=np.complex128)
@@ -37,14 +44,14 @@ def spectral_centroid_cutoff(
     cov = x @ x.conj().T
     evals, u = np.linalg.eigh(cov)
     u = u[:, np.argsort(evals)[::-1]]
-    freqs = np.fft.rfftfreq(n_frames, d=1.0 / frame_rate_hz)
+    abs_freqs = np.abs(np.fft.fftfreq(n_frames, d=1.0 / frame_rate_hz))
     centroid = np.zeros(n_frames)
     for i in range(n_frames):
-        spectrum = np.abs(np.fft.rfft(u[:, i].real)) ** 2
-        spectrum[0] = 0.0  # exclude DC
-        total = spectrum.sum()
+        power = np.abs(np.fft.fft(u[:, i])) ** 2
+        power[0] = 0.0  # exclude DC
+        total = power.sum()
         if total > 0:
-            centroid[i] = float(np.sum(freqs * spectrum) / total)
+            centroid[i] = float(np.sum(abs_freqs * power) / total)
     above = np.where(centroid > tissue_freq_hz)[0]
     return int(above[0]) if len(above) else max(1, round(n_frames * 0.1))
 
