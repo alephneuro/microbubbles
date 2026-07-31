@@ -77,7 +77,11 @@ Run `ultratrace-ulm <command> --help` for the complete flag list of any command.
 
 ### download
 
-Resumable download (pure stdlib, no `curl` needed). A sanitized neutral
+Resumable download. Uses [aria2](https://aria2.github.io/) (`aria2c`) for
+parallel-connection downloads when it is installed (`brew install aria2` /
+`apt install aria2` — recommended for this file size), and falls back to a
+pure-stdlib sequential downloader otherwise; `--downloader` forces a specific
+backend. A sanitized neutral
 ultratrace — demodulated IQ plus transmit delays and a beamforming-only config,
 no raw frames or device metadata, with the full 8-row elevation receive aperture preserved for true 3D reconstruction — hosted on Cloudflare R2 (~96 GB, 216
 acquisitions):

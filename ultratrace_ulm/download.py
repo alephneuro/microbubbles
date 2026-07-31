@@ -1,12 +1,17 @@
 """Resumable download of the public sample ultratrace.
 
-Pure standard library (``urllib``) so the package keeps its minimal dependency
-footprint -- no ``curl``/``requests`` required. Supports HTTP range resume so an
-interrupted ~96 GB download can be continued in place.
+Uses ``aria2c`` (parallel HTTP range requests) when the binary is on the PATH:
+multi-connection downloads hold up much better against the rate-limited r2.dev
+endpoint. Falls back to a pure standard-library (``urllib``) sequential
+downloader so the package still works with no extra installs. Both paths
+support HTTP range resume so an interrupted ~96 GB download can be continued
+in place.
 """
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -24,6 +29,9 @@ _CHUNK = 8 * 1024 * 1024  # 8 MiB
 # Cloudflare R2's public endpoint returns 403 for urllib's default
 # ``Python-urllib/x.y`` agent, so send an explicit one.
 _USER_AGENT = "ultratrace-ulm/0.1"
+# Parallel connections for aria2c. The r2.dev endpoint throttles per
+# connection, so a moderate fan-out helps; keep it polite.
+_ARIA2_SPLITS = 8
 
 
 def _fmt_bytes(n: float) -> str:
@@ -37,43 +45,54 @@ def _fmt_bytes(n: float) -> str:
 def _remote_size(url: str) -> int | None:
     req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": _USER_AGENT})
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             length = resp.headers.get("Content-Length")
             return int(length) if length is not None else None
     except (urllib.error.URLError, ValueError):
         return None
 
 
-def download_sample(
-    url: str = SAMPLE_URL,
-    output: str | Path = SAMPLE_FILENAME,
-    *,
-    force: bool = False,
-    chunk: int = _CHUNK,
-) -> Path:
-    """Download ``url`` to ``output``, resuming a partial file when possible.
+def _aria2_control_file(out: Path) -> Path:
+    return out.with_name(out.name + ".aria2")
 
-    Returns the resolved output path. Re-running after a complete download is a
-    no-op unless ``force`` is set.
-    """
-    out = Path(output).expanduser().resolve()
-    out.parent.mkdir(parents=True, exist_ok=True)
 
-    total = _remote_size(url)
-    if force and out.exists():
-        out.unlink()
+def _download_with_aria2(aria2c: str, url: str, out: Path) -> Path:
+    command = [
+        aria2c,
+        "--continue=true",
+        f"--split={_ARIA2_SPLITS}",
+        f"--max-connection-per-server={_ARIA2_SPLITS}",
+        "--min-split-size=16M",
+        "--retry-wait=5",
+        "--connect-timeout=30",
+        "--timeout=60",
+        "--file-allocation=none",
+        "--auto-file-renaming=false",
+        "--allow-overwrite=true",
+        f"--user-agent={_USER_AGENT}",
+        f"--dir={out.parent}",
+        f"--out={out.name}",
+        url,
+    ]
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"aria2c exited with code {exc.returncode}. The partial file and its "
+            f"{_aria2_control_file(out).name} control file are kept; re-running resumes."
+        ) from exc
+    print(f"Saved {out} ({_fmt_bytes(out.stat().st_size)})")
+    return out
 
+
+def _download_with_urllib(url: str, out: Path, total: int | None, chunk: int) -> Path:
     existing = out.stat().st_size if out.exists() else 0
-    if total is not None and existing == total:
-        print(f"Already complete: {out} ({_fmt_bytes(total)})")
-        return out
     if total is not None and existing > total:
         # Local file is larger than remote -- assume stale, restart.
         out.unlink()
         existing = 0
 
     headers = {"User-Agent": _USER_AGENT}
-    mode = "wb"
     if existing:
         headers["Range"] = f"bytes={existing}-"
         print(f"Resuming from {_fmt_bytes(existing)} ...")
@@ -116,3 +135,59 @@ def download_sample(
     print("", file=sys.stderr)
     print(f"Saved {out} ({_fmt_bytes(out.stat().st_size)})")
     return out
+
+
+def download_sample(
+    url: str = SAMPLE_URL,
+    output: str | Path = SAMPLE_FILENAME,
+    *,
+    force: bool = False,
+    chunk: int = _CHUNK,
+    downloader: str = "auto",
+) -> Path:
+    """Download ``url`` to ``output``, resuming a partial file when possible.
+
+    ``downloader`` selects the backend: ``"auto"`` (default) uses ``aria2c``
+    when the binary is on the PATH and urllib otherwise; ``"aria2"`` /
+    ``"urllib"`` force one. Returns the resolved output path. Re-running after
+    a complete download is a no-op unless ``force`` is set.
+    """
+    if downloader not in ("auto", "aria2", "urllib"):
+        raise ValueError(
+            f"Unknown downloader {downloader!r}; expected 'auto', 'aria2', or 'urllib'"
+        )
+
+    out = Path(output).expanduser().resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    control = _aria2_control_file(out)
+
+    if force:
+        if out.exists():
+            out.unlink()
+        if control.exists():
+            control.unlink()
+
+    total = _remote_size(url)
+    have_clean_file = out.exists() and not control.exists()
+    if total is not None and have_clean_file and out.stat().st_size == total:
+        print(f"Already complete: {out} ({_fmt_bytes(total)})")
+        return out
+
+    aria2c = shutil.which("aria2c")
+    if downloader == "aria2" and aria2c is None:
+        raise RuntimeError("downloader='aria2' but aria2c is not on the PATH")
+    use_aria2 = downloader == "aria2" or (downloader == "auto" and aria2c is not None)
+
+    if not use_aria2 and control.exists():
+        # An aria2c partial is written in parallel segments and may contain
+        # holes, so the sequential downloader must not append to it.
+        raise RuntimeError(
+            f"{out} was partially downloaded by aria2c ({control.name} exists) and "
+            "may contain gaps the sequential urllib downloader cannot fill. "
+            "Install aria2 to resume it, or pass --force to restart from scratch."
+        )
+
+    if use_aria2:
+        print(f"Downloading with aria2c ({_ARIA2_SPLITS} connections) ...")
+        return _download_with_aria2(aria2c, url, out)
+    return _download_with_urllib(url, out, total=total, chunk=chunk)
