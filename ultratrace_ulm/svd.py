@@ -13,6 +13,25 @@ def _component_count(cutoff: float | int | None, n_frames: int) -> int:
     return int(round(value))
 
 
+def doppler_velocity_to_freq(
+    velocity_mm_s: float,
+    tx_freq_hz: float,
+    speed_of_sound_m_s: float,
+) -> float:
+    """Axial velocity (mm/s) -> Doppler frequency (Hz): f = 2 v f0 / c.
+
+    A frequency threshold is only meaningful alongside the carrier it was
+    measured at; the velocity it corresponds to is the carrier-invariant
+    quantity, so thresholds are better specified in mm/s and converted here.
+    """
+    if tx_freq_hz <= 0 or speed_of_sound_m_s <= 0:
+        raise ValueError(
+            "tx_freq_hz and speed_of_sound_m_s must be positive to convert a "
+            f"velocity threshold, got {tx_freq_hz=}, {speed_of_sound_m_s=}"
+        )
+    return 2.0 * (velocity_mm_s * 1e-3) * tx_freq_hz / speed_of_sound_m_s
+
+
 def spectral_centroid_cutoff(
     matrix: np.ndarray,
     frame_rate_hz: float,
@@ -87,7 +106,11 @@ def filter_svd_3d(
 
     if method == "adaptive":
         if frame_rate_hz is None:
-            raise ValueError("method='adaptive' requires frame_rate_hz")
+            raise ValueError(
+                "method='adaptive' requires frame_rate_hz. Pass --frame-rate, or "
+                "re-beamform from a neutral file that records the frame rate (or "
+                "its pulse repetition rate and angle count) in /config."
+            )
         low = spectral_centroid_cutoff(matrix, frame_rate_hz, tissue_freq_hz)
         normalized_method = "fast"
     else:

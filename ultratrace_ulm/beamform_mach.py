@@ -86,6 +86,33 @@ def _load_neutral_config(h5: h5py.File, opts: BeamformOptions) -> NeutralConfig:
     return NeutralConfig.from_h5_attrs(attrs)
 
 
+def _neutral_frame_rate_hz(h5: h5py.File) -> float | None:
+    """Compounded frame rate from the neutral ``/config``, or None if absent.
+
+    Accepts either an explicit ``frame_rate_hz`` or a pulse repetition rate
+    plus ``num_angles`` (frame rate = PRF / angles, since one compound frame
+    costs one transmit per angle).
+    """
+    attrs = h5["config"].attrs
+    if "frame_rate_hz" in attrs:
+        return float(attrs["frame_rate_hz"])
+
+    prf_keys = ("empirical_pulse_repetition_rate_hz", "pulse_repetition_rate_hz", "prf_hz")
+    prf = next((float(attrs[k]) for k in prf_keys if k in attrs), None)
+    if prf is None:
+        return None
+    n_angles = int(attrs["num_angles"]) if "num_angles" in attrs else None
+    if n_angles is None:
+        # Every acquisition carries one transmit-delay row per angle.
+        acq_ids = _neutral_acq_ids(h5)
+        if not acq_ids:
+            return None
+        n_angles = int(h5[f"acquisitions/{acq_ids[0]}/tx_delays"].shape[0])
+    if n_angles < 1:
+        return None
+    return prf / n_angles
+
+
 def _load_acq(h5: h5py.File, acq_id: int):
     g = h5[f"acquisitions/{acq_id}"]
     iq = np.asarray(g["iq_frames"], dtype=np.complex64)
@@ -155,6 +182,17 @@ def beamform_mach(opts: BeamformOptions) -> Path:
                 f"(z/x coarseness {opts.z_coarseness}, elev {opts.elev_planes}, "
                 f"large_fov {opts.large_fov}, spatial_tgc {opts.spatial_tgc})"
             )
+            # Needed downstream to convert velocity thresholds to Doppler
+            # frequencies (f = 2 v f0 / c); not recoverable from the images.
+            out.attrs["tx_freq_hz"] = float(config.tx_freq_hz)
+            out.attrs["speed_of_sound_m_s"] = float(config.speed_of_sound_m_s)
+            # Compounded frame rate, carried through from the neutral file so
+            # tracking can pick it up without the user restating it. Older
+            # exports predate this attribute; then it simply isn't written and
+            # ``track`` asks for --frame-rate.
+            frame_rate_hz = _neutral_frame_rate_hz(h5)
+            if frame_rate_hz is not None:
+                out.attrs["frame_rate_hz"] = frame_rate_hz
             for out_id, acq_id in enumerate(ids):
                 iq, txd, txd_elev = _load_acq(h5, acq_id)
                 print(f"[beamform] acq {acq_id}: iq {iq.shape} -> mach", flush=True)

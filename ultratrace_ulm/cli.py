@@ -77,6 +77,16 @@ def add_tracking_args(parser: argparse.ArgumentParser, require_beamformed: bool 
         help="Tissue/blood frequency boundary (Hz) for adaptive SVD.",
     )
     parser.add_argument(
+        "--tissue-velocity",
+        dest="tissue_velocity_mm_s",
+        type=float,
+        default=None,
+        help=(
+            "Tissue/blood boundary as an axial velocity (mm/s), converted to Hz "
+            "per file via f = 2*v*f0/c. Carrier-invariant; overrides --tissue-freq."
+        ),
+    )
+    parser.add_argument(
         "--filter",
         dest="filter_method",
         choices=["svd", "none"],
@@ -310,7 +320,13 @@ def build_parser() -> argparse.ArgumentParser:
     src.add_argument("--beamformed", help="Existing beamformed H5 (skip beamform).")
     p.add_argument("--url", default=SAMPLE_URL, help="Sample URL when downloading.")
     p.add_argument("--work-dir", default="outputs", help="Output directory for all artifacts.")
-    p.add_argument("--frame-rate", dest="frame_rate", type=float, default=222.0)
+    p.add_argument(
+        "--frame-rate",
+        dest="frame_rate",
+        type=float,
+        default=None,
+        help="Compounded frame rate (Hz). Default: read from the beamformed file.",
+    )
     p.add_argument("--svd-method", choices=["fast", "full", "adaptive", "none"], default="adaptive")
     p.add_argument("--spatial-tgc", action="store_true", help="Spatial TGC during beamforming.")
     p.add_argument("--min-length", type=int, default=35, help="Min track length for the viewer.")

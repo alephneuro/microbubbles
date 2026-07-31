@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import ceil
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from scipy.optimize import linear_sum_assignment
 
 from .h5_io import acq_keys, grid_arrays, load_compound, open_h5, select_acquisitions
 from .runtime import dump_pickle, load_pickle
-from .svd import filtered_magnitude
+from .svd import doppler_velocity_to_freq, filtered_magnitude
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,10 @@ class TrackingOptions:
     svd_method: str = "fast"
     knee_filter: bool = True
     tissue_freq_hz: float = 100.0
+    # Carrier-invariant alternative to tissue_freq_hz; converted per acquisition
+    # from the acquisition's own tx frequency and speed of sound. Takes
+    # precedence over tissue_freq_hz when set.
+    tissue_velocity_mm_s: float | None = None
     temporal_sigma: float = 0.0
     filter_method: str = "svd"
     min_distance: int = 2
@@ -684,6 +688,52 @@ def _knee_filter_batch(batch: list, opts: TrackingOptions) -> list:
     return out
 
 
+def _resolve_frame_rate(opts: TrackingOptions, h5) -> TrackingOptions:
+    """Take the frame rate from the beamformed file unless one was given.
+
+    An explicit --frame-rate always wins; this only fills the gap, and only
+    from a value the beamform stage carried over from the source acquisition.
+    """
+    if opts.frame_rate_hz is not None:
+        return opts
+    if "frame_rate_hz" not in h5.attrs:
+        return opts
+
+    frame_rate_hz = float(h5.attrs["frame_rate_hz"])
+    print(f"Frame rate {frame_rate_hz:.4f} Hz (from {opts.beamformed_path.name})")
+    return replace(opts, frame_rate_hz=frame_rate_hz)
+
+
+def _resolve_tissue_threshold(opts: TrackingOptions, h5) -> TrackingOptions:
+    """Convert a velocity threshold to this file's Doppler frequency threshold.
+
+    A Hz threshold is tied to the carrier it was chosen at; a mm/s one is not,
+    so ``--tissue-velocity`` is converted per file using the tx frequency and
+    speed of sound recorded at beamform time.
+    """
+    if opts.tissue_velocity_mm_s is None:
+        return opts
+
+    missing = [k for k in ("tx_freq_hz", "speed_of_sound_m_s") if k not in h5.attrs]
+    if missing:
+        raise ValueError(
+            f"--tissue-velocity needs {', '.join(missing)} in {opts.beamformed_path.name}, "
+            "but this file was beamformed before those were recorded. Re-beamform, "
+            "or pass --tissue-freq in Hz instead."
+        )
+
+    tx_freq_hz = float(h5.attrs["tx_freq_hz"])
+    speed_of_sound_m_s = float(h5.attrs["speed_of_sound_m_s"])
+    freq_hz = doppler_velocity_to_freq(
+        opts.tissue_velocity_mm_s, tx_freq_hz, speed_of_sound_m_s
+    )
+    print(
+        f"Tissue boundary {opts.tissue_velocity_mm_s:g} mm/s -> {freq_hz:.1f} Hz "
+        f"(tx {tx_freq_hz / 1e6:g} MHz, c {speed_of_sound_m_s:g} m/s)"
+    )
+    return replace(opts, tissue_freq_hz=freq_hz)
+
+
 def _filter_acquisition(compound: np.ndarray, opts: TrackingOptions) -> np.ndarray:
     if opts.filter_method == "none":
         mag = np.abs(compound).astype(np.float32, copy=False)
@@ -810,6 +860,8 @@ def _run_selected(opts: TrackingOptions, selected: list[int], output_path: Path)
 def run_tracking(opts: TrackingOptions) -> Path:
     with open_h5(opts.beamformed_path) as h5:
         selected = select_acquisitions(acq_keys(h5), opts.acq_start, opts.num_acqs, opts.acq_step)
+        opts = _resolve_frame_rate(opts, h5)
+        opts = _resolve_tissue_threshold(opts, h5)
 
     if not opts.output_per_acq:
         return _run_selected(opts, selected, opts.tracks_path)
@@ -1195,6 +1247,7 @@ def make_options(args) -> TrackingOptions:
         svd_method=args.svd_method,
         knee_filter=getattr(args, "knee_filter", True),
         tissue_freq_hz=getattr(args, "tissue_freq_hz", 100.0),
+        tissue_velocity_mm_s=getattr(args, "tissue_velocity_mm_s", None),
         temporal_sigma=args.temporal_sigma,
         filter_method=args.filter_method,
         min_distance=args.min_distance,
